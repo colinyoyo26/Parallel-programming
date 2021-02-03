@@ -56,29 +56,28 @@ static __global__ void spmm(csr_t A, csc_t B, int BN, uint32_t *ret)
 #undef CACHESZ
 }
 
-static __global__ void _add_internal(uint32_t *result, int n)
+static __global__ void _add_internal(uint32_t *src, int n)
 {
-    int tid = threadIdx.x, blksz = blockDim.x, idx = blockIdx.x * blksz + tid;
+    int tid = threadIdx.x, blksz = blockDim.x,
+        idx = blockIdx.x * (blksz << 1) + tid;
     __shared__ uint32_t cache[1024];
-    if (idx >= n) {
-        cache[tid] = 0;
-        return;
-    }
-    cache[tid] = result[idx];
-    for (int i = blksz >> 1; tid < i; i >>= 1) {
+    cache[tid] = idx < n ? src[idx] : 0;
+    cache[tid + blksz] = idx + blksz < n ? src[idx + blksz] : 0;
+    for (int i = blksz; tid < i; i >>= 1) {
         __syncthreads();
         cache[tid] += cache[tid + i];
     }
     if (!tid)
-        result[blockIdx.x] = cache[0];
+        src[blockIdx.x] = cache[0];
 }
 
 static void fast_add(int N, uint32_t *src)
 {
 #define divceil(a, b) (a + b - 1) / b
     const int blksz = 512;
-    for (int rem = N; rem != 1; rem = divceil(rem, blksz))
-        _add_internal<<<dim3(divceil(rem, blksz)), dim3(blksz)>>>(src, rem);
+    for (int rem = N; rem != 1; rem = divceil(rem, (blksz << 1)))
+        _add_internal<<<dim3(divceil(rem, (blksz << 1))), dim3(blksz)>>>(src,
+                                                                         rem);
 #undef divceil
 }
 
