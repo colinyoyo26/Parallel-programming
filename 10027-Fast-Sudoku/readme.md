@@ -1,4 +1,4 @@
-# [10026. Fast N-Queens](https://judgegirl.csie.org/problem/0/10026)
+# [10027. Fast Sudoku](https://judgegirl.csie.org/problem/0/10027)
 
 ## Concept
 Do two phase of `dfs` to reach the good load balance.
@@ -6,4 +6,4 @@ Do two phase of `dfs` to reach the good load balance.
 - Second phase: do `dfs` from that `depth` to final (multithread).
 
 ## Compile
-`$ gcc nq.c -fopenmp -O2`
+`$ gcc sudoku.c -fopenmp -O2`
