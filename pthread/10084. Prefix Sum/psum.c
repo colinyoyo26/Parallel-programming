@@ -14,7 +14,7 @@ typedef struct {
 } info_t;
 static uint32_t n, key, psum[MAXN], tcnt;
 static info_t info[MAXTHREADS + 1];
-static pthread_barrier_t b1, b2, b3;
+static pthread_barrier_t barrier;
 
 static inline uint32_t rotate_left(uint32_t x, uint32_t n)
 {
@@ -37,15 +37,15 @@ void *calpsum(void *arg)
             sum += encrypt(i, key);
             psum[i] = sum;
         }
-        pthread_barrier_wait(&b1);
+        pthread_barrier_wait(&barrier);
         if (info[tid].begin == 1) {
             for (int i = 1; i <= tcnt; i++)
                 info[i].val = psum[info[i - 1].end - 1] + info[i - 1].val;
         }
-        pthread_barrier_wait(&b2);
+        pthread_barrier_wait(&barrier);
         for (int i = info[tid].begin; i < info[tid].end; i++)
             psum[i] += info[tid].val;
-        pthread_barrier_wait(&b3);
+        pthread_barrier_wait(&barrier);
     } while ((intptr_t) arg != (intptr_t) &tcnt);
     return NULL;
 }
@@ -68,9 +68,7 @@ int main()
     while (scanf("%d %u", &n, &key) == 2) {
         int size = divceil(n, (MAXTHREADS + 1));
         tcnt = divceil(n, size) - 1;
-        pthread_barrier_init(&b1, NULL, tcnt + 1);
-        pthread_barrier_init(&b2, NULL, tcnt + 1);
-        pthread_barrier_init(&b3, NULL, tcnt + 1);
+        pthread_barrier_init(&barrier, NULL, tcnt + 1);
         for (int i = 0; i < tcnt; i++) {
             info[i].begin = i * size + 1;
             info[i].end = info[i].begin + size;
