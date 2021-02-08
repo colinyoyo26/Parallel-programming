@@ -26,40 +26,21 @@ __device__ __forceinline__ void cond_swap(uint32_t *a, uint32_t *b, bool cond)
     }
 }
 
-__global__ void _bitonic_internal(uint32_t *A, int seqsz)
+__global__ void _bitonic_internal(uint32_t *A, int lgseqsz, int off)
 {
-#define CACHESZ 1024
-    int idx = threadIdx.x, sid = blockIdx.x, blksz = blockDim.x;
-    uint32_t *ptr = &A[sid * seqsz];
-    __shared__ uint32_t cache[CACHESZ];
-    if (seqsz <= CACHESZ) {
-        for (int i = idx; i < seqsz; i += blksz)
-            cache[i] = ptr[i];
-        ptr = cache;
-        __syncthreads();
-    }
-    for (int off = seqsz >> 1; off; off >>= 1) {
-        for (int i = idx; i < (seqsz >> 1); i += blksz) {
-            int j = ((i & ~(off - 1)) << 1) | (i & (off - 1));
-            cond_swap(&ptr[j], &ptr[j | off], sid & 1);
-        }
-        __syncthreads();
-    }
-    if (seqsz <= CACHESZ) {
-        ptr = &A[sid * seqsz];
-        for (int i = idx; i < seqsz; i += blksz)
-            ptr[i] = cache[i];
-    }
-#undef CACHESZ
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = ((tid & ~(off - 1)) << 1) | (tid & (off - 1));
+    int sid = tid >> (lgseqsz - 1);
+    cond_swap(&A[idx], &A[idx | off], sid & 1);
 }
 
 static inline void bitonic_sort(uint32_t *A, int n)
 {
-    int blksz = 1024;
-    for (int seqsz = 2; seqsz <= n; seqsz <<= 1) {
-        int t = seqsz >> 1;
-        _bitonic_internal<<<n / seqsz, t> blksz ? blksz : t>> > (A, seqsz);
-    }
+    int dblksz = n > 1024 ? 1024 : n;
+    int lgn = __builtin_ctz(n);
+    for (int lgseqsz = 1; lgseqsz <= lgn; lgseqsz++)
+        for (int off = 1 << (lgseqsz - 1); off; off >>= 1)
+            _bitonic_internal<<<(n / dblksz), (dblksz >> 1)>>>(A, lgseqsz, off);
 }
 
 __global__ void _add_internal(uint32_t *A, int n)
@@ -98,8 +79,6 @@ __global__ void print_result(uint32_t *A)
     printf("%u\n", *A);
 }
 
-static uint32_t A[MAXN], B[MAXN];
-#include <algorithm>
 int main()
 {
     int n, key;
@@ -107,30 +86,9 @@ int main()
     cudaMalloc(&cuA, MAXN * sizeof(uint32_t));
     while (scanf("%d %d", &n, &key) == 2) {
         assert((n & -n) == n);
-
-#ifdef DEBUG
-        for (uint32_t i = 0; i < n; i++)
-            printf("%u ", (i * i + key) % key);
-        printf("\n\n");
-#endif
         const int blksz = 512, gridsz = divceil(n, blksz);
         init_array<<<gridsz, blksz>>>(cuA, n, key);
         bitonic_sort(cuA, n);
-#ifdef DEBUG
-        printf("\n\n");
-        cudaMemcpy(A, cuA, n * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-        for (int i = 0; i < n; i++)
-            printf("%u ", A[i]);
-        printf("\n");
-#endif
-#ifdef ASSERT
-        cudaMemcpy(A, cuA, n * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-        for (uint32_t i = 0; i < n; i++)
-            B[i] = (i * i + key) % key;
-        std::sort(B, B + n);
-        for (int i = 0; i < n; i++)
-            assert(B[i] == A[i] || 1 == printf("%u %u %u\n", i, B[i], A[i]));
-#endif
         fast_hash(cuA, n);
         print_result<<<1, 1>>>(cuA);
     }
